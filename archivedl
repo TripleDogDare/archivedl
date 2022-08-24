@@ -3,15 +3,15 @@ set -euo pipefail
 
 help() {
 	cat <<'EOF'
-archivedl [ command || wget options/URL ]
+archivedl [ command ]
 	commands:
-		login: Perform a login and save cookies
-		plogin: Prompt for user/pass if not stored and then login.
-		help: Display help
-		store: prompt for and store login information (information will not be secured)
-
-	Anything else will be passed to wget directly.
-	See: man wget
+		    help: Display this help message
+		   login: Perform a login and save cookies
+		  plogin: Prompt for user/pass if not stored and then login.
+		   store: Prompt for and store login information (password will not be secured).
+		          Exit after entering username to only store username.
+		download: Pass everything after this to wget directly. For more options see: man wget
+		          Recommended options are [--continue] [--tries=0] [URL]
 EOF
 }
 
@@ -36,6 +36,7 @@ load_config() {
 	local IFS
 	if [ -f "${ARCHIVE_CONFIG}" ]; then
 		while IFS="=" read -r name value; do
+			[ -z "${name}" ] && continue
 			declare -g ${name}="${value}"
 		done < "${ARCHIVE_CONFIG}"
 	fi
@@ -45,9 +46,8 @@ store_config() {
 	unset -v ARCHIVE_USER
 	unset -v ARCHIVE_PASSWORD
 	read -p 'username: ' ARCHIVE_USER
-	read -s -p 'password: ' ARCHIVE_PASSWORD
-
 	echo "ARCHIVE_USER=${ARCHIVE_USER}" > ${ARCHIVE_CONFIG}
+	read -s -p 'password: ' ARCHIVE_PASSWORD
 	echo "ARCHIVE_PASSWORD=${ARCHIVE_PASSWORD}" >> ${ARCHIVE_CONFIG}
 }
 
