@@ -1,0 +1,70 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ -f ".archive.user" ]; then
+	source ".archive.user"
+fi
+
+readonly RANDDIGIT=$(tr -cd '[:digit:]' < /dev/urandom | head -c27)
+readonly BOUNDARY="---------------------------${RANDDIGIT}"
+readonly H_ACCEPT='Accept: */*'
+readonly H_LANG='Accept-Language: en-US,en;q=0.5'
+readonly H_ENCODE='Accept-Encoding: gzip, deflate, br'
+readonly H_REFER='Referer: https://archive.org/account/login'
+readonly H_CONTENTTYPE="Content-Type: multipart/form-data; boundary=${BOUNDARY}"
+readonly H_ORIGIN='Origin: https://archive.org'
+readonly H_CONNECTION='Connection: keep-alive'
+readonly AGENT='Mozilla/5.0 (X11; Linux x86_64; rv:103.0) Gecko/20100101 Firefox/103.0'
+
+readonly COOKIEJAR='.archive.wget.cookies'
+
+formField() {
+	local name=$1
+	local value=$2
+	echo "--${BOUNDARY}"
+	echo 'Content-Disposition: form-data; name="'"${name}"\"$'\n'$'\n'"$value"
+
+}
+
+generate() {
+	formField username      "$ARCHIVE_USER"
+	formField password      "$ARCHIVE_PASSWORD"
+	formField remember      "true"
+	formField referer       "https://archive.org/"
+	formField login         "true"
+	formField submit_by_js  "true"
+	echo "--${BOUNDARY}--"
+}
+
+login() {
+	>&2 echo 'init'
+	wget --output-document=/dev/null --server-response --save-cookies="$COOKIEJAR" --keep-session-cookies \
+		--user-agent="$AGENT" "https://archive.org/account/login"
+
+	local -r POSTDATA="$(generate)"
+	>&2 echo 'login'
+	>&2 echo "$POSTDATA"
+	wget -q --output-document=- --server-response --save-cookies="$COOKIEJAR" --keep-session-cookies \
+		--load-cookies="$COOKIEJAR" --post-data="$POSTDATA" --header="$H_CONTENTTYPE" \
+		--header="$H_ACCEPT" --header="$H_LANG" --header="$H_ENCODE" --header="$H_REFER" --header="$H_CONNECTION" \
+		--user-agent="$AGENT" "https://archive.org/account/login" | xargs echo
+}
+
+download() {
+	>&2 echo 'download'
+	wget -q --output-document=- --server-response --load-cookies="$COOKIEJAR" \
+		--header="$H_ACCEPT" --header="$H_LANG" --header="$H_ENCODE" --header="$H_REFER" --header="$H_CONNECTION" \
+		--user-agent="$AGENT" "$2" | xargs echo
+}
+
+if [ -z "${1:-}" ]; then
+	login
+	exit
+fi
+
+if [ -z "${1#test}" ]; then
+	generate
+	exit
+fi
+
+download "$1"
