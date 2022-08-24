@@ -1,10 +1,21 @@
 #!/bin/bash
 set -euo pipefail
 
-if [ -f ".archive.user" ]; then
-	source ".archive.user"
-fi
+help() {
+	cat <<'EOF'
+archivedl [ command || wget options/URL ]
+	commands:
+		login: Perform a login and save cookies
+		plogin: Prompt for user/pass if not stored and then login.
+		help: Display help
+		store: prompt for and store login information (information will not be secured)
 
+	Anything else will be passed to wget directly.
+	See: man wget
+EOF
+}
+
+readonly ARCHIVE_CONFIG="${XDG_CONFIG_HOME:-${HOME}/.config}/.archivedl"
 readonly RANDDIGIT=$(tr -cd '[:digit:]' < /dev/urandom | head -c27)
 readonly BOUNDARY="---------------------------${RANDDIGIT}"
 readonly H_ACCEPT='Accept: */*'
@@ -15,12 +26,34 @@ readonly H_CONTENTTYPE="Content-Type: multipart/form-data; boundary=${BOUNDARY}"
 readonly H_ORIGIN='Origin: https://archive.org'
 readonly H_CONNECTION='Connection: keep-alive'
 readonly AGENT='Mozilla/5.0 (X11; Linux x86_64; rv:103.0) Gecko/20100101 Firefox/103.0'
+readonly COOKIEDIR="${XDG_CACHE_HOME:-${HOME}/.cache}"
+readonly COOKIEJAR="${COOKIEDIR}/.archivedl"
 
-readonly COOKIEJAR='.archive.wget.cookies'
+
+load_config() {
+	local name
+	local value
+	local IFS
+	if [ -f "${ARCHIVE_CONFIG}" ]; then
+		while IFS="=" read -r name value; do
+			declare -g ${name}="${value}"
+		done < "${ARCHIVE_CONFIG}"
+	fi
+}
+
+store_config() {
+	unset -v ARCHIVE_USER
+	unset -v ARCHIVE_PASSWORD
+	read -p 'username: ' ARCHIVE_USER
+	read -s -p 'password: ' ARCHIVE_PASSWORD
+
+	echo "ARCHIVE_USER=${ARCHIVE_USER}" > ${ARCHIVE_CONFIG}
+	echo "ARCHIVE_PASSWORD=${ARCHIVE_PASSWORD}" >> ${ARCHIVE_CONFIG}
+}
 
 formField() {
-	local name=$1
-	local value=$2
+	local -r name=$1
+	local -r value=$2
 	echo "--${BOUNDARY}"
 	echo 'Content-Disposition: form-data; name="'"${name}"\"$'\n'$'\n'"$value"
 
@@ -38,12 +71,12 @@ generate() {
 
 login() {
 	>&2 echo 'init'
+	mkdir -p "$COOKIEDIR"
 	wget --output-document=/dev/null --server-response --save-cookies="$COOKIEJAR" --keep-session-cookies \
 		--user-agent="$AGENT" "https://archive.org/account/login"
 
 	local -r POSTDATA="$(generate)"
 	>&2 echo 'login'
-	>&2 echo "$POSTDATA"
 	wget -q --output-document=- --server-response --save-cookies="$COOKIEJAR" --keep-session-cookies \
 		--load-cookies="$COOKIEJAR" --post-data="$POSTDATA" --header="$H_CONTENTTYPE" \
 		--header="$H_ACCEPT" --header="$H_LANG" --header="$H_ENCODE" --header="$H_REFER" --header="$H_CONNECTION" \
@@ -52,19 +85,63 @@ login() {
 
 download() {
 	>&2 echo 'download'
-	wget -q --output-document=- --server-response --load-cookies="$COOKIEJAR" \
+
+	wget --server-response --load-cookies="$COOKIEJAR" \
 		--header="$H_ACCEPT" --header="$H_LANG" --header="$H_ENCODE" --header="$H_REFER" --header="$H_CONNECTION" \
-		--user-agent="$AGENT" "$2" | xargs echo
+		--user-agent="$AGENT" "$@"
 }
 
-if [ -z "${1:-}" ]; then
-	login
+getUser() {
+	if [[ ! -z "${ARCHIVE_USER:-}" ]]; then
+		return
+	fi
+	read -p 'username: ' ARCHIVE_USER
+	readonly ARCHIVE_USER
+}
+
+getPassword() {
+	if [[ ! -z "${ARCHIVE_PASSWORD:-}" ]]; then
+		return
+	fi
+	read -s -p 'password: ' ARCHIVE_PASSWORD
+	readonly ARCHIVE_PASSWORD
+}
+
+if [ -z ${1:-} ]; then
+	help
 	exit
 fi
 
-if [ -z "${1#test}" ]; then
+if [ -z "${1#generate}" ]; then
+	load_config
 	generate
 	exit
 fi
 
-download "$1"
+if [ -z "${1#login}" ]; then
+	load_config
+	login
+	exit
+fi
+
+if [ -z "${1#store}" ]; then
+	store_config
+	exit
+fi
+
+if [ -z "${1#plogin}" ]; then
+	load_config
+	getUser
+	getPassword
+	login
+	exit
+fi
+
+if [ -z "${1#download}" ]; then
+	shift
+	download "$@"
+	exit
+fi
+
+help
+exit 1
