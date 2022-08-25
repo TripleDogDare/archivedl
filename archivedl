@@ -4,6 +4,9 @@ set -euo pipefail
 help() {
 	cat <<'EOF'
 archivedl [ command ]
+	archivedl is a tool for logging into the internet archive and downloading files
+	as the logged in user. Uses wget to communicate.
+
 	commands:
 		    help: Display this help message
 		   login: Perform a login and save cookies
