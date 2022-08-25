@@ -1,4 +1,5 @@
-#ArchiveDL
+ArchiveDL
+---
 
 A tool for interacting with the Internet Archive.
 
